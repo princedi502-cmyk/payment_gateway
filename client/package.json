@@ -1,0 +1,14 @@
+{
+  "name": "payment-client",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix payment_front run dev",
+    "build": "npm --prefix payment_front run build",
+    "lint": "npm --prefix payment_front run lint",
+    "preview": "npm --prefix payment_front run preview"
+  },
+  "dependencies": {
+    "@stripe/react-stripe-js": "^6.8.0",
+    "@stripe/stripe-js": "^9.12.0"
+  }
+}

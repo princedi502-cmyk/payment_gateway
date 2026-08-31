@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-labelledby="title description">
+  <title id="title">No product image available</title>
+  <desc id="description">A gray image placeholder</desc>
+  <rect width="400" height="300" fill="#e2e8f0"/>
+  <path d="M112 208l55-64 40 45 28-32 53 51H112z" fill="#94a3b8"/>
+  <circle cx="158" cy="112" r="23" fill="#94a3b8"/>
+  <text x="200" y="252" text-anchor="middle" fill="#475569" font-family="sans-serif" font-size="20">No image available</text>
+</svg>
