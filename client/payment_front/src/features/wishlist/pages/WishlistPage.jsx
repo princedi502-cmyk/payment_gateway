@@ -36,10 +36,10 @@ function WishlistPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {items.map((item) => (
             <div key={item._id} className="relative group">
-              <ProductCard product={item.product} />
+              <ProductCard product={item.product} showWishlistButton={false} />
               <button
                 onClick={() => removeItem(item.product._id)}
-                className="absolute top-2 right-2 p-2 bg-white/90 hover:bg-white rounded-full shadow-sm border border-slate-200 text-slate-500 hover:text-danger transition-colors z-10"
+                className="absolute top-3 right-3 p-2.5 rounded-xl shadow-sm border transition-all duration-300 bg-white/90 backdrop-blur-sm text-text-muted hover:text-danger border-border hover:border-danger/30 z-10"
                 aria-label="Remove from wishlist"
               >
                 <Trash2 className="w-4 h-4" />

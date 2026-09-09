@@ -1,5 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
+export function getUploadUrl(uploadPath) {
+  if (!uploadPath) return ''
+  if (/^https?:\/\//i.test(uploadPath)) return uploadPath
+
+  const apiOrigin = API_BASE.replace(/\/api\/?$/, '')
+  const normalizedPath = String(uploadPath).replace(/^\/+/, '')
+  return `${apiOrigin}/uploads/${normalizedPath}`
+}
+
+export class ApiError extends Error {
+  constructor(message, { status, code, details, requestId } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.details = details
+    this.requestId = requestId
+  }
+}
+
 function getAuthHeaders() {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -15,10 +35,55 @@ async function request(endpoint, options = {}) {
     ...options,
   })
 
+  if (res.status === 401) {
+    localStorage.removeItem('token')
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login?error=session_expired'
+    }
+    throw new ApiError('Session expired. Please log in again.', { status: 401, code: 'UNAUTHORIZED' })
+  }
+
   const json = await res.json().catch(() => ({ message: 'Request failed' }))
 
   if (!res.ok) {
-    throw new Error(json.message || 'Something went wrong')
+    throw new ApiError(json.message || 'Something went wrong', {
+      status: res.status,
+      code: json.code,
+      details: json.details,
+      requestId: json.requestId,
+    })
+  }
+
+  return json
+}
+
+async function formDataRequest(endpoint, formData, options = {}) {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    method: options.method || 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      ...options.headers,
+    },
+    body: formData,
+  })
+
+  if (res.status === 401) {
+    localStorage.removeItem('token')
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login?error=session_expired'
+    }
+    throw new ApiError('Session expired. Please log in again.', { status: 401, code: 'UNAUTHORIZED' })
+  }
+
+  const json = await res.json().catch(() => ({ message: 'Request failed' }))
+
+  if (!res.ok) {
+    throw new ApiError(json.message || 'Something went wrong', {
+      status: res.status,
+      code: json.code,
+      details: json.details,
+      requestId: json.requestId,
+    })
   }
 
   return json
@@ -97,6 +162,10 @@ export async function getOrders(page = 1, limit = 10) {
   return request(`/orders?${params.toString()}`)
 }
 
+export async function getUserStats() {
+  return request('/orders/stats')
+}
+
 export async function updateProfile(data) {
   return request('/profile/me', {
     method: 'PUT',
@@ -126,4 +195,67 @@ export async function deleteAddress(addressId) {
   return request(`/addresses/${addressId}`, {
     method: 'DELETE',
   })
+}
+
+export async function createReturnRequest(orderId, formData) {
+  return formDataRequest('/returns', formData)
+}
+
+export async function getReturns() {
+  const json = await request('/returns')
+  return json.data
+}
+
+export async function createReview(productId, data, images) {
+  const formData = new FormData()
+  formData.append('productId', productId)
+  formData.append('rating', String(data.rating))
+  if (data.comment) {
+    formData.append('comment', data.comment)
+  }
+  if (images && images.length > 0) {
+    images.forEach((image) => {
+      formData.append('images', image)
+    })
+  }
+  return formDataRequest('/reviews', formData)
+}
+
+export async function getProductReviews(productId, page = 1, limit = 10) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  const json = await request(`/reviews/products/${productId}/reviews?${params.toString()}`)
+  return json
+}
+
+export async function getMyReviews(page = 1, limit = 10) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  return request(`/reviews/me?${params.toString()}`)
+}
+
+export async function updateReview(reviewId, data, images) {
+  const formData = new FormData()
+  if (data.rating !== undefined) {
+    formData.append('rating', String(data.rating))
+  }
+  if (data.comment !== undefined) {
+    formData.append('comment', data.comment || '')
+  }
+  if (images && images.length > 0) {
+    images.forEach((image) => {
+      formData.append('images', image)
+    })
+  }
+  return formDataRequest(`/reviews/${reviewId}`, formData, { method: 'PATCH' })
+}
+
+export async function deleteReview(reviewId) {
+  return request(`/reviews/${reviewId}`, { method: 'DELETE' })
+}
+
+export async function canUserReviewProduct(productId) {
+  return request(`/reviews/product/${productId}/can-review`)
+}
+
+export async function hasUserReviewedProduct(productId) {
+  return request(`/reviews/product/${productId}/exists`)
 }

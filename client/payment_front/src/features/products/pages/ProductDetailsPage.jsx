@@ -1,40 +1,55 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Star, ShoppingCart, Truck, Shield } from 'lucide-react'
 import Button from '../../../shared/components/ui/Button.jsx'
 import Badge from '../../../shared/components/ui/Badge.jsx'
 import { useCart } from '../../../shared/context/CartContext.jsx'
-import { fetchProductById } from '../../../shared/utils/api.js'
+import { useAuth } from '../../../shared/context'
+import { fetchProductById, canUserReviewProduct } from '../../../shared/utils/api.js'
+import { useCachedFetch } from '../../../shared/hooks/useCachedFetch.js'
+import ReviewSummary from '../../reviews/components/ReviewSummary.jsx'
+import ReviewList from '../../reviews/components/ReviewList.jsx'
+import ReviewForm from '../../reviews/components/ReviewForm.jsx'
 import noImage from '../../../assets/no-image.svg'
 
 function ProductDetailsPage() {
   const { id } = useParams()
-  const [product, setProduct] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [added, setAdded] = useState(false)
   const { addItem } = useCart()
   const navigate = useNavigate()
-  const fetchedRef = useRef(false)
+  const { user, isAuthenticated } = useAuth()
+  const [canReview, setCanReview] = useState(false)
+  const [hasReviewed, setHasReviewed] = useState(false)
+  const [existingReview, setExistingReview] = useState(null)
+  const [showReviewForm, setShowReviewForm] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  useEffect(() => {
-    if (fetchedRef.current) return
-    fetchedRef.current = true
-
-    async function load() {
-      try {
-        const data = await fetchProductById(id)
-        setProduct(data)
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [id])
+  const fetchProduct = useCallback(() => fetchProductById(id), [id])
+  const { data: product, loading, error } = useCachedFetch(
+    `product:${id}`,
+    fetchProduct,
+    { enabled: !!id }
+  )
 
   const timeoutRef = useRef(null)
+
+  const loadReviewEligibility = useCallback(async () => {
+    if (!isAuthenticated || !user || !id) {
+      setCanReview(false)
+      setHasReviewed(false)
+      setExistingReview(null)
+      return
+    }
+
+    try {
+      const result = await canUserReviewProduct(id)
+      setCanReview(result.canReview)
+      setHasReviewed(result.hasReviewed)
+      setExistingReview(result.review || null)
+    } catch (error) {
+      console.error('Failed to load review eligibility:', error)
+    }
+  }, [id, isAuthenticated, user])
 
   const handleAddToCart = useCallback(() => {
     if (product) {
@@ -46,10 +61,12 @@ function ProductDetailsPage() {
   }, [product, addItem])
 
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
   }, [])
+
+  useEffect(() => {
+    loadReviewEligibility()
+  }, [loadReviewEligibility, refreshKey])
 
   if (loading) {
     return (
@@ -73,7 +90,7 @@ function ProductDetailsPage() {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
-        <p className="text-danger text-lg">Error: {error}</p>
+        <p className="text-danger text-lg">Error: {error.message}</p>
         <Link to="/">
           <Button variant="primary" className="mt-4">
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -116,12 +133,7 @@ function ProductDetailsPage() {
           <h1 className="text-3xl font-bold text-slate-900 mb-4">{product.title}</h1>
 
           <div className="flex items-center gap-4 mb-6">
-            <div className="flex items-center gap-1">
-              <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-              <span className="font-semibold text-slate-700">{product.rating}</span>
-            </div>
-            <span className="text-slate-400">|</span>
-            <span className="text-slate-600">{product.reviews} reviews</span>
+            <ReviewSummary productId={product._id} />
           </div>
 
           <p className="text-slate-600 text-lg mb-8 leading-relaxed">{product.description}</p>
@@ -168,6 +180,81 @@ function ProductDetailsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="mt-16">
+        <h2 className="text-2xl font-bold text-slate-900 mb-6">Customer Reviews</h2>
+
+        {isAuthenticated && (canReview || hasReviewed || showReviewForm) && (
+          <div className="mb-8">
+            {!showReviewForm && !hasReviewed && canReview && (
+              <button
+                onClick={() => setShowReviewForm(true)}
+                className="px-4 py-2.5 bg-primary text-white font-medium rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Write a Review
+              </button>
+            )}
+            {showReviewForm && (
+              <ReviewForm
+                productId={product._id}
+                existingReview={existingReview}
+                onSuccess={() => {
+                  setShowReviewForm(false)
+                  setRefreshKey((k) => k + 1)
+                }}
+                onCancel={() => setShowReviewForm(false)}
+              />
+            )}
+            {hasReviewed && !showReviewForm && (
+              <div className="mb-4 p-4 bg-slate-50 rounded-lg">
+                {existingReview?.status === 'pending' ? (
+                  <p className="text-slate-600 mb-2">Your review is pending approval.</p>
+                ) : (
+                  <p className="text-slate-600 mb-2">You have already reviewed this product.</p>
+                )}
+                <button
+                  onClick={() => setShowReviewForm(true)}
+                  className="text-primary font-medium hover:underline"
+                >
+                  Edit your review
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isAuthenticated && (
+          <div className="mb-8 p-4 bg-slate-50 rounded-lg text-center">
+            <p className="text-slate-600">
+              <Link to="/login" className="text-primary font-medium hover:underline">Log in</Link>
+              {' '}to leave a review
+            </p>
+          </div>
+        )}
+
+        {isAuthenticated && !canReview && !hasReviewed && (
+          <div className="mb-8 p-4 bg-slate-50 rounded-lg text-center">
+            <p className="text-slate-600">Purchase this product to leave a review</p>
+          </div>
+        )}
+
+        <ReviewList
+          key={refreshKey}
+          productId={product._id}
+          userId={user?._id}
+          onEdit={(review) => {
+            setExistingReview(review)
+            setShowReviewForm(true)
+          }}
+          onDelete={() => {
+            setRefreshKey((k) => k + 1)
+          }}
+          onPendingReviewFound={(review) => {
+            setHasReviewed(true)
+            setExistingReview(review)
+          }}
+        />
       </div>
     </div>
   )

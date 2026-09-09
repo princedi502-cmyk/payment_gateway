@@ -1,9 +1,15 @@
 import { type Request, type Response, type NextFunction } from "express";
 import mongoose from "mongoose";
+import crypto from "crypto";
 import Product from "../models/product.model.ts";
 import Order from "../models/order.model.ts";
 import User from "../models/user.model.ts";
-import { getPaymentProvider } from "../providers/payment";
+import { getPaymentProvider } from "../providers/payment/index.ts";
+import {
+  BadRequestError,
+  NotFoundError,
+  InternalServerError,
+} from "../errors/AppError.ts";
 
 export const createCheckoutSession = async (
   req: Request,
@@ -14,19 +20,11 @@ export const createCheckoutSession = async (
     const { items, shippingAddress, contactInfo, selectedAddressId } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      res.status(400).json({
-        success: false,
-        message: "Items are required",
-      });
-      return;
+      throw new BadRequestError("Items are required");
     }
 
     if (!shippingAddress || typeof shippingAddress !== "object") {
-      res.status(400).json({
-        success: false,
-        message: "Shipping address is required",
-      });
-      return;
+      throw new BadRequestError("Shipping address is required");
     }
 
     const { fullName, email, phone, address, city, state, zipCode } = shippingAddress;
@@ -40,29 +38,17 @@ export const createCheckoutSession = async (
 
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity < 1) {
-        res.status(400).json({
-          success: false,
-          message: "Each item must have a valid productId and quantity >= 1",
-        });
-        return;
+        throw new BadRequestError("Each item must have a valid productId and quantity >= 1");
       }
 
       if (!mongoose.Types.ObjectId.isValid(item.productId)) {
-        res.status(400).json({
-          success: false,
-          message: `Invalid product ID: ${item.productId}`,
-        });
-        return;
+        throw new BadRequestError(`Invalid product ID: ${item.productId}`);
       }
 
       const product = productMap.get(item.productId);
 
       if (!product) {
-        res.status(404).json({
-          success: false,
-          message: `Product not found: ${item.productId}`,
-        });
-        return;
+        throw new NotFoundError(`Product`);
       }
 
       const lineTotal = product.price * item.quantity;
@@ -94,6 +80,10 @@ export const createCheckoutSession = async (
       orderData.contactInfo = contactInfo;
     }
 
+    if (!orderData.userId) {
+      orderData.guestToken = crypto.randomBytes(32).toString("hex");
+    }
+
     const order = new Order(orderData);
 
     await order.save();
@@ -107,7 +97,13 @@ export const createCheckoutSession = async (
         orderNumber: order.orderNumber,
       });
     } catch (paymentError) {
-      await Order.findByIdAndDelete(order._id);
+      order.status = "failed";
+      order.statusHistory.push({
+        status: "failed",
+        changedAt: new Date(),
+        note: paymentError instanceof Error ? paymentError.message : "Payment initialization failed",
+      });
+      await order.save();
       throw paymentError;
     }
 
@@ -132,6 +128,7 @@ export const createCheckoutSession = async (
         orderId: order._id,
         orderNumber: order.orderNumber,
         clientSecret: paymentIntent.clientSecret,
+        guestToken: order.guestToken,
       },
     });
   } catch (error) {

@@ -1,6 +1,6 @@
 import ProductCard from './ProductCard.jsx'
 
-function ProductGrid({ products, loading, emptyMessage = 'No products found' }) {
+function ProductGrid({ products = [], loading, emptyMessage = 'No products found' }) {
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -22,7 +22,7 @@ function ProductGrid({ products, loading, emptyMessage = 'No products found' }) 
     )
   }
 
-  if (!products.length) {
+  if (!products || !products.length) {
     return (
       <div className="text-center py-16">
         <p className="text-slate-500 text-lg">{emptyMessage}</p>

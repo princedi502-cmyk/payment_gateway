@@ -20,8 +20,16 @@ export const googleCallback = (req: Request, res: Response) => {
       return res.redirect(`${FRONTEND_URL}/login?error=no_user`)
     }
 
-    const token = generateToken(user._id.toString())
+    const token = generateToken(user._id.toString(), user.tokenVersion ?? 0)
 
-    res.redirect(`${FRONTEND_URL}/auth/callback?token=${token}`)
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000,
+      path: "/",
+    })
+
+    res.redirect(`${FRONTEND_URL}/auth/callback`)
   })(req, res)
 }

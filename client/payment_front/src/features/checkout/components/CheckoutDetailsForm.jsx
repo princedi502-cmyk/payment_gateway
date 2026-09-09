@@ -111,13 +111,15 @@ function CheckoutDetailsForm({ onCreateSession }) {
   const handleSaveAddress = async (e) => {
     e.preventDefault()
     try {
+      let response
       if (editingAddressId) {
-        await updateAddress(editingAddressId, formData)
+        response = await updateAddress(editingAddressId, formData)
       } else {
-        await addAddress({ ...formData, isDefault: savedAddresses.length === 0 })
+        response = await addAddress({ ...formData, isDefault: savedAddresses.length === 0 })
       }
-      const resp = await getAddresses()
-      setSavedAddresses(resp.data || [])
+      if (response?.data) {
+        setSavedAddresses(response.data)
+      }
       setShowAddressForm(false)
       setEditingAddressId(null)
       clearForm()
@@ -160,7 +162,6 @@ function CheckoutDetailsForm({ onCreateSession }) {
 
     try {
       const submitData = {
-        items: [],
         shippingAddress: {
           fullName: formData.fullName,
           email: formData.email,

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createOrder, getOrderById, getUserOrders } from "../controllers/order.controller.ts";
+import { createOrder, getOrderById, getUserOrders, getUserStats } from "../controllers/order.controller.ts";
 import { authenticateUser } from "../middlewares/auth.middleware.ts";
 import { validate } from "../middlewares/validation.middleware.ts";
 import { createOrderSchema, orderIdParamSchema } from "../validators/order.validator.ts";
@@ -7,6 +7,7 @@ import { createOrderSchema, orderIdParamSchema } from "../validators/order.valid
 const router = Router();
 
 router.post("/", authenticateUser, validate(createOrderSchema), createOrder);
+router.get("/stats", authenticateUser, getUserStats);
 router.get("/:orderId", authenticateUser, validate(orderIdParamSchema, "params"), getOrderById);
 router.get("/", authenticateUser, getUserOrders);
 

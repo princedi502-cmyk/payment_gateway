@@ -17,8 +17,8 @@ if (WEAK_SECRETS.includes(JWT_SECRET.toLowerCase())) {
   throw new Error("JWT_SECRET is a known weak value - please change it to a random string")
 }
 
-export const generateToken = (userId: string): string => {
-  return jwt.sign({ userId }, JWT_SECRET, {
+export const generateToken = (userId: string, tokenVersion: number = 0): string => {
+  return jwt.sign({ userId, tokenVersion }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   } as any)
 };

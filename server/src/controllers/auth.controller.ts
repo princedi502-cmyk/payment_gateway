@@ -5,6 +5,14 @@ import { type Request, type Response, type NextFunction } from "express"
 import User from "../models/user.model.ts"
 import { generateToken } from "../config/jwt.ts"
 import { sendVerificationEmail, sendPasswordResetEmail } from "../services/mail.service.ts"
+import {
+  BadRequestError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  TooManyRequestsError,
+} from "../errors/AppError.ts"
 
 export const register = async (
   req: Request,
@@ -16,11 +24,7 @@ export const register = async (
 
     const existingUser = await User.findOne({ email })
     if (existingUser) {
-      res.status(400).json({
-        success: false,
-        message: "User already exists",
-      })
-      return
+      throw new ConflictError("User already exists")
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
@@ -59,37 +63,21 @@ export const login = async (
 
     const user = await User.findOne({ email })
     if (!user) {
-      res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      })
-      return
+      throw new UnauthorizedError("Invalid credentials")
     }
 
     if (user.lockUntil && user.lockUntil > new Date()) {
       const remainingMinutes = Math.ceil((user.lockUntil.getTime() - Date.now()) / 60000)
-      res.status(429).json({
-        success: false,
-        message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}.`,
-      })
-      return
+      throw new TooManyRequestsError(`Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}.`)
     }
 
     if (!user.isVerified) {
-      res.status(403).json({
-        success: false,
-        message: "Please verify your email before logging in",
-      })
-      return
+      throw new ForbiddenError("Please verify your email before logging in")
     }
 
     if (!user.password) {
-  res.status(401).json({
-    success: false,
-    message: "Invalid credentials",
-  })
-  return
-}
+      throw new UnauthorizedError("Invalid credentials")
+    }
 
     const isPasswordValid = await bcrypt.compare(password, user.password)
     if (!isPasswordValid) {
@@ -99,18 +87,14 @@ export const login = async (
       }
       await user.save()
 
-      res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      })
-      return
+      throw new UnauthorizedError("Invalid credentials")
     }
 
     user.failedLoginAttempts = 0
     user.lockUntil = null
     await user.save()
 
-    const token = generateToken(user._id.toString())
+    const token = generateToken(user._id.toString(), user.tokenVersion ?? 0)
 
     res.status(200).json({
       success: true,
@@ -135,11 +119,7 @@ export const verifyEmail = async (
     const { token } = req.query
 
     if (!token || typeof token !== "string") {
-      res.status(400).json({
-        success: false,
-        message: "Verification token is required",
-      })
-      return
+      throw new BadRequestError("Verification token is required")
     }
 
     const user = await User.findOne({
@@ -148,14 +128,16 @@ export const verifyEmail = async (
     })
 
     if (!user) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid or expired verification token",
-      })
-      return
+      throw new BadRequestError("Invalid or expired verification token")
+    }
+
+    if (user.isVerified) {
+      throw new BadRequestError("Email is already verified")
     }
 
      user.isVerified = true
+     user.verificationToken = undefined as any
+     user.verificationTokenExpires = undefined as any
      await user.save()
 
     res.status(200).json({
@@ -214,16 +196,13 @@ export const resetPassword = async (
     })
 
     if (!user) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset token",
-      })
-      return
+      throw new BadRequestError("Invalid or expired reset token")
     }
 
     user.password = await bcrypt.hash(newPassword, 10)
     user.resetPasswordToken = undefined
     user.resetPasswordExpires = undefined
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1
     await user.save()
 
     res.status(200).json({
@@ -245,16 +224,38 @@ export const getMe = async (
 
     const user = await User.findById(userId).select("email name isVerified provider addresses createdAt")
     if (!user) {
-      res.status(404).json({
-        success: false,
-        message: "User not found",
-      })
-      return
+      throw new NotFoundError("User")
     }
 
     res.status(200).json({
       success: true,
       data: user,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getTokenFromCookie = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const token = (req as any).cookies?.auth_token
+    if (!token) {
+      throw new UnauthorizedError("No authentication token found")
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as unknown as { userId: string }
+    const user = await User.findById(decoded.userId).select("email name isVerified provider addresses createdAt")
+    if (!user) {
+      throw new UnauthorizedError("User not found")
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { token, user },
     })
   } catch (error) {
     next(error)

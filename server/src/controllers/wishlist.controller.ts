@@ -1,6 +1,7 @@
 import { type Request, type Response, type NextFunction } from "express"
 import Wishlist from "../models/wishlist.model.ts"
 import Product from "../models/product.model.ts"
+import { NotFoundError } from "../errors/AppError.ts"
 
 export const getWishlist = async (
   req: Request,
@@ -42,31 +43,29 @@ export const addToWishlist = async (
     const userId = (req as any).userId as string
     const { productId } = req.params
 
-    const existing = await Wishlist.findOne({ user: userId, product: productId } as any)
-    if (existing) {
-      res.status(409).json({
-        success: false,
-        message: "Product already in wishlist",
+    try {
+      const item = await Wishlist.create({ user: userId, product: productId } as any)
+
+      const populated = await Wishlist.findById(item._id).populate({
+        path: "product",
+        model: "Product",
       })
-      return
+
+      res.status(201).json({
+        success: true,
+        count: 1,
+        data: {
+          _id: populated!._id,
+          product: populated!.product,
+          createdAt: populated!.createdAt,
+        },
+      })
+    } catch (err: any) {
+      if (err.code === 11000) {
+        throw new Error("DUPLICATE_KEY")
+      }
+      throw err
     }
-
-    const item = await Wishlist.create({ user: userId, product: productId } as any)
-
-    const populated = await Wishlist.findById(item._id).populate({
-      path: "product",
-      model: "Product",
-    })
-
-    res.status(201).json({
-      success: true,
-      count: 1,
-      data: {
-        _id: populated!._id,
-        product: populated!.product,
-        createdAt: populated!.createdAt,
-      },
-    })
   } catch (error) {
     next(error)
   }
@@ -87,11 +86,7 @@ export const removeFromWishlist = async (
     } as any)
 
     if (!deleted) {
-      res.status(404).json({
-        success: false,
-        message: "Product not found in wishlist",
-      })
-      return
+      throw new NotFoundError("Wishlist item")
     }
 
     res.status(200).json({

@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { lazy, Suspense, useLayoutEffect } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import Header from './shared/components/layout/Header.jsx'
 import Footer from './shared/components/layout/Footer.jsx'
 import ProtectedRoute from './shared/components/auth/ProtectedRoute.jsx'
@@ -22,6 +22,7 @@ const OrdersPage = lazy(() => import('./features/dashboard/pages/OrdersPage.jsx'
 const OrderDetailPage = lazy(() => import('./features/dashboard/pages/OrderDetailPage.jsx'))
 const ProfilePage = lazy(() => import('./features/dashboard/pages/ProfilePage.jsx'))
 const WishlistPage = lazy(() => import('./features/wishlist/pages/WishlistPage.jsx'))
+const ReturnRequestPage = lazy(() => import('./features/returns/pages/ReturnRequestPage.jsx'))
 
 function LoadingSpinner() {
   return (
@@ -43,9 +44,20 @@ function NotFoundPage() {
   )
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation()
+
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+
+  return null
+}
+
 function App() {
   return (
     <div className="flex flex-col min-h-screen">
+      <ScrollToTop />
       <Header />
       <main className="flex-1">
         <ErrorBoundary>
@@ -69,6 +81,7 @@ function App() {
               <Route path="/dashboard/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
               <Route path="/dashboard/orders/:id" element={<ProtectedRoute><OrderDetailPage /></ProtectedRoute>} />
               <Route path="/dashboard/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+              <Route path="/dashboard/orders/:orderId/return" element={<ProtectedRoute><ReturnRequestPage /></ProtectedRoute>} />
               <Route path="/wishlist" element={<ProtectedRoute><WishlistPage /></ProtectedRoute>} />
 
               <Route path="*" element={<NotFoundPage />} />
