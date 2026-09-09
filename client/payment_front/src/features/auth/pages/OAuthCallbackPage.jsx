@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getCurrentUser } from '../../../shared/utils/authApi.js'
 import { useAuth } from '../../../shared/context'
 
 function OAuthCallbackPage() {
@@ -18,7 +17,6 @@ function OAuthCallbackPage() {
 
   useEffect(() => {
     const handleCallback = async () => {
-      const token = searchParams.get('token')
       const errorParam = searchParams.get('error')
 
       if (errorParam) {
@@ -27,19 +25,25 @@ function OAuthCallbackPage() {
         return
       }
 
-      if (token) {
-        localStorage.setItem('token', token)
-        try {
-          const response = await getCurrentUser()
-          setToken(token)
-          updateUser(response.data)
-          navigate('/', { replace: true })
-        } catch {
-          setError('Failed to load user data. Please try logging in again.')
-          timeoutRef.current = setTimeout(() => navigate('/login'), 3000)
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+        const res = await fetch(`${API_BASE}/auth/token`, {
+          credentials: 'include',
+        })
+        const json = await res.json()
+
+        if (!res.ok || !json.data?.token) {
+          throw new Error(json.message || 'Failed to authenticate')
         }
-      } else {
-        navigate('/login')
+
+        const { token, user } = json.data
+        localStorage.setItem('token', token)
+        setToken(token)
+        updateUser(user)
+        navigate('/', { replace: true })
+      } catch {
+        setError('Failed to load user data. Please try logging in again.')
+        timeoutRef.current = setTimeout(() => navigate('/login'), 3000)
       }
     }
 

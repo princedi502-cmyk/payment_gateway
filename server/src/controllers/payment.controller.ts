@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 import { type Request, type Response, type NextFunction } from "express";
 import Order from "../models/order.model.ts";
 import { sendReceipt } from "../services/mail.service.ts";
+import { scheduleOrderNotification } from "../services/order-notification.service.ts";
 import { stripe } from "../config/stripe.ts";
+import { BadRequestError, NotFoundError, ForbiddenError } from "../errors/AppError.ts";
 
 export const createPaymentIntent = async (
   req: Request,
@@ -14,36 +16,20 @@ export const createPaymentIntent = async (
     const userId = (req as any).userId;
 
     if (!orderId) {
-      res.status(400).json({
-        success: false,
-        message: "orderId is required",
-      });
-      return;
+      throw new BadRequestError("orderId is required");
     }
 
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid orderId",
-      });
-      return;
+      throw new BadRequestError("Invalid orderId");
     }
 
     const order = await Order.findById(orderId);
     if (!order) {
-      res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
-      return;
+      throw new NotFoundError("Order");
     }
 
     if (order.userId && order.userId.toString() !== userId) {
-      res.status(403).json({
-        success: false,
-        message: "You do not have permission to make a payment for this order",
-      });
-      return;
+      throw new ForbiddenError("You do not have permission to make a payment for this order");
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
@@ -78,11 +64,7 @@ export const getPaymentStatus = async (
   try {
     const { paymentId: rawPaymentId } = req.params;
     if (!rawPaymentId || Array.isArray(rawPaymentId)) {
-      res.status(400).json({
-        success: false,
-        message: "paymentId is required",
-      });
-      return;
+      throw new BadRequestError("paymentId is required");
     }
     const paymentId = rawPaymentId;
     const userId = (req as any).userId;
@@ -91,20 +73,12 @@ export const getPaymentStatus = async (
 
     const orderId = paymentIntent.metadata?.orderId;
     if (!orderId) {
-      res.status(403).json({
-        success: false,
-        message: "Payment has no associated order",
-      });
-      return;
+      throw new ForbiddenError("Payment has no associated order");
     }
 
     const order = await Order.findById(orderId);
     if (!order || (order.userId && order.userId.toString() !== userId)) {
-      res.status(403).json({
-        success: false,
-        message: "You do not have permission to view this payment",
-      });
-      return;
+      throw new ForbiddenError("You do not have permission to view this payment");
     }
 
     res.status(200).json({
@@ -129,11 +103,7 @@ export const refundPayment = async (
   try {
     const { paymentId: rawPaymentId } = req.params;
     if (!rawPaymentId || Array.isArray(rawPaymentId)) {
-      res.status(400).json({
-        success: false,
-        message: "paymentId is required",
-      });
-      return;
+      throw new BadRequestError("paymentId is required");
     }
     const paymentId = rawPaymentId;
     const { amount } = req.body;
@@ -143,20 +113,16 @@ export const refundPayment = async (
 
     const orderId = paymentIntent.metadata?.orderId;
     if (!orderId) {
-      res.status(403).json({
-        success: false,
-        message: "Payment has no associated order",
-      });
-      return;
+      throw new ForbiddenError("Payment has no associated order");
     }
 
     const order = await Order.findById(orderId);
     if (!order || (order.userId && order.userId.toString() !== userId)) {
-      res.status(403).json({
-        success: false,
-        message: "You do not have permission to refund this payment",
-      });
-      return;
+      throw new ForbiddenError("You do not have permission to refund this payment");
+    }
+
+    if (amount && amount > order.total) {
+      throw new BadRequestError(`Refund amount ($${amount}) cannot exceed order total ($${order.total})`);
     }
 
     const refund = await stripe.refunds.create({
@@ -235,11 +201,7 @@ export const verifyPayment = async (
     const userId = (req as any).userId;
 
     if (!paymentIntentId) {
-      res.status(400).json({
-        success: false,
-        message: "paymentIntentId is required",
-      });
-      return;
+      throw new BadRequestError("paymentIntentId is required");
     }
 
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -248,31 +210,61 @@ export const verifyPayment = async (
       const orderId = paymentIntent.metadata?.orderId;
 
       if (!orderId) {
-        res.status(403).json({
-          success: false,
-          message: "Payment has no associated order",
-        });
-        return;
+        throw new ForbiddenError("Payment has no associated order");
       }
 
       const order = await Order.findById(orderId);
       if (!order || (order.userId && order.userId.toString() !== userId)) {
-        res.status(403).json({
-          success: false,
-          message: "You do not have permission to verify this payment",
+        throw new ForbiddenError("You do not have permission to verify this payment");
+      }
+
+      if (Math.round(order.total * 100) !== paymentIntent.amount) {
+        throw new ForbiddenError("Payment amount does not match order total");
+      }
+
+      const notificationScheduledAt = new Date(Date.now() + 5 * 1000);
+      const updatedOrder = await Order.findOneAndUpdate(
+        { _id: orderId, status: { $ne: "paid" } },
+        {
+          status: "paid",
+          paymentIntentId: paymentIntent.id,
+          paidAt: new Date(),
+          notificationScheduledAt,
+          notificationSent: false,
+          $push: {
+            statusHistory: {
+              status: "paid",
+              changedAt: new Date(),
+            },
+          },
+        },
+        { new: true },
+      );
+
+      if (!updatedOrder) {
+        res.status(200).json({
+          success: true,
+          data: {
+            id: paymentIntent.id,
+            status: paymentIntent.status,
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency,
+          },
         });
         return;
       }
 
-      await Order.findByIdAndUpdate(orderId, {
-        status: "paid",
-        paymentIntentId: paymentIntent.id,
-        paidAt: new Date(),
-      });
+      if (updatedOrder.userId) {
+        await scheduleOrderNotification(
+          updatedOrder._id.toString(),
+          updatedOrder.userId.toString(),
+          notificationScheduledAt,
+        );
+      }
 
-      if (order && !order.receiptSent) {
+      if (!updatedOrder.receiptSent) {
         await Order.findByIdAndUpdate(orderId, { receiptSent: true });
-        sendReceipt(order).catch((err: Error) =>
+        sendReceipt(updatedOrder).catch((err: Error) =>
           console.error("Failed to send receipt:", err),
         );
       }

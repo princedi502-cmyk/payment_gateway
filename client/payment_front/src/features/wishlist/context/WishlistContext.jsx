@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react'
 import { fetchWishlist, addToWishlist, removeFromWishlist } from '../api.js'
+import { useAuth } from '../../../shared/context'
 
 const WishlistContext = createContext(null)
 
@@ -14,22 +15,27 @@ export function WishlistProvider({ children }) {
     }
   })
   const [loading, setLoading] = useState(true)
+  const { isAuthenticated } = useAuth()
 
   useEffect(() => {
     localStorage.setItem('wishlist', JSON.stringify(items))
   }, [items])
 
   const fetchWishlistItems = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const data = await fetchWishlist()
-      setItems(data)
+      setItems(Array.isArray(data) ? data : [])
     } catch {
-      setItems([])
+      // Keep localStorage-backed items as fallback
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isAuthenticated])
 
   useEffect(() => {
     fetchWishlistItems()

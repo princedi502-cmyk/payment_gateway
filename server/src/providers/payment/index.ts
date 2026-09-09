@@ -17,4 +17,4 @@ export function registerPaymentProvider(name: string, provider: PaymentProvider)
   providers[name] = provider;
 }
 
-export type { PaymentProvider } from "./payment-provider";
+export type { PaymentProvider } from "./payment-provider.ts";

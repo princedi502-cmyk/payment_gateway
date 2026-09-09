@@ -33,9 +33,21 @@ export interface IOrder extends Document {
   tax: number;
   total: number;
   status: "pending" | "paid" | "failed" | "refunded" | "canceled";
+  statusHistory: Array<{
+    status: string;
+    changedBy?: Types.ObjectId;
+    changedAt: Date;
+    note?: string;
+  }>;
+  adminNotes?: string;
   paymentIntentId?: string;
   paidAt?: Date;
   receiptSent?: boolean;
+  notificationSent?: boolean;
+  notificationSentAt?: Date;
+  notificationScheduledAt?: Date;
+  returnRequested?: boolean;
+  guestToken?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,14 +79,28 @@ const orderSchema = new Schema<IOrder>(
     subtotal: { type: Number, required: true },
     tax: { type: Number, required: true },
     total: { type: Number, required: true },
-  status: {
-    type: String,
-    enum: ["pending", "paid", "failed", "refunded", "canceled"],
-    default: "pending",
-  },
+    status: {
+      type: String,
+      enum: ["pending", "paid", "failed", "refunded", "canceled"],
+      default: "pending",
+    },
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        changedBy: { type: Schema.Types.ObjectId, ref: "User", required: false },
+        changedAt: { type: Date, default: Date.now },
+        note: { type: String },
+      },
+    ],
+    adminNotes: { type: String, maxlength: 2000 },
     paymentIntentId: { type: String },
     paidAt: { type: Date },
     receiptSent: { type: Boolean, default: false },
+    notificationSent: { type: Boolean, default: false },
+    notificationSentAt: { type: Date },
+    notificationScheduledAt: { type: Date },
+    returnRequested: { type: Boolean, default: false },
+    guestToken: { type: String, index: true },
   },
   { timestamps: true }
 );
@@ -82,6 +108,12 @@ const orderSchema = new Schema<IOrder>(
 orderSchema.pre("save", function () {
   if (!this.orderNumber) {
     this.orderNumber = `ORD-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  }
+  if (this.isNew && this.statusHistory.length === 0) {
+    this.statusHistory.push({
+      status: this.status,
+      changedAt: new Date(),
+    });
   }
 });
 

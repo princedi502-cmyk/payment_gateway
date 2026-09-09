@@ -1,28 +1,33 @@
-import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useCallback } from 'react'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Package } from 'lucide-react'
 import Button from '../../../shared/components/ui/Button.jsx'
 import Card from '../../../shared/components/ui/Card.jsx'
 import { getOrderById } from '../../../shared/utils/api.js'
+import { useCachedFetch } from '../../../shared/hooks/useCachedFetch.js'
 
 function OrderDetailPage() {
   const { id } = useParams()
-  const [order, setOrder] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const data = await getOrderById(id)
-        setOrder(data)
-      } catch {
-        setOrder(null)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [id])
+  const fetchOrder = useCallback(() => getOrderById(id), [id])
+  const { data: order, loading, error } = useCachedFetch(
+    `order:${id}`,
+    fetchOrder,
+    { enabled: !!id }
+  )
+
+  const isWithinReturnWindow = (paidAt) => {
+    if (!paidAt) return false
+    const deadline = new Date(new Date(paidAt).getTime() + 15 * 24 * 60 * 60 * 1000)
+    return deadline > new Date()
+  }
+
+  const canRequestReturn =
+    order?.status === 'paid' &&
+    !order?.returnRequested &&
+    isWithinReturnWindow(order?.paidAt)
 
   const statusColorMap = {
     paid: 'text-success',
@@ -48,7 +53,7 @@ function OrderDetailPage() {
     )
   }
 
-  if (!order) {
+  if (error || !order) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
         <Card>
@@ -85,13 +90,41 @@ function OrderDetailPage() {
           </span>
         </div>
 
+        {location.state?.returnSuccess && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p className="text-sm text-green-700">
+              Your return request has been submitted. We will review it within 24 hours.
+            </p>
+          </div>
+        )}
+
+        {order.returnRequested && (
+          <div className="mb-4">
+            <span className="inline-block text-xs font-medium bg-amber-100 text-amber-800 px-2 py-1 rounded">
+              Return Requested
+            </span>
+          </div>
+        )}
+
+        {canRequestReturn && !order.returnRequested && (
+          <div className="mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/dashboard/orders/${id}/return`)}
+            >
+              Request Return
+            </Button>
+          </div>
+        )}
+
         <div className="space-y-4">
           <div>
             <h3 className="font-semibold text-secondary mb-2">Items</h3>
             {order.items?.length > 0 ? (
               <ul className="space-y-2">
                 {order.items.map((item, idx) => (
-                  <li key={idx} className="flex justify-between text-sm text-slate-700 border-b border-slate-100 pb-2 last:border-0">
+                  <li key={item.productId || idx} className="flex justify-between text-sm text-slate-700 border-b border-slate-100 pb-2 last:border-0">
                     <span>{item.title} × {item.quantity}</span>
                     <span>${(item.price * item.quantity).toFixed(2)}</span>
                   </li>

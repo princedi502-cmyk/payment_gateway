@@ -1,6 +1,8 @@
 import { type Request, type Response, type NextFunction } from "express"
-import  User from "../models/user.model.ts"
+import mongoose from "mongoose"
+import User from "../models/user.model.ts"
 import type { IUserAddress } from "../models/user.model.ts"
+import { BadRequestError, NotFoundError } from "../errors/AppError.ts"
 
 const MAX_ADDRESSES = 5
 
@@ -14,8 +16,7 @@ export const getAddresses = async (
     const user = await User.findById(userId).select("addresses")
 
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found" })
-      return
+      throw new NotFoundError("User")
     }
 
     res.status(200).json({
@@ -34,25 +35,27 @@ export const addAddress = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).userId
-    const addressData = req.body as Omit<IUserAddress, "isDefault">
+    const { isDefault: clientIsDefault, ...addressData } = req.body as IUserAddress & { isDefault?: boolean }
 
     const user = await User.findById(userId)
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found" })
-      return
+      throw new NotFoundError("User")
     }
 
     if (user.addresses.length >= MAX_ADDRESSES) {
-      res.status(400).json({
-        success: false,
-        message: `Maximum ${MAX_ADDRESSES} addresses allowed`,
-      })
-      return
+      throw new BadRequestError(`Maximum ${MAX_ADDRESSES} addresses allowed`)
+    }
+
+    const isFirst = user.addresses.length === 0
+    const shouldBeDefault = isFirst || clientIsDefault === true
+
+    if (shouldBeDefault) {
+      user.addresses.forEach((a) => { a.isDefault = false })
     }
 
     const newAddress = {
       ...addressData,
-      isDefault: user.addresses.length === 0,
+      isDefault: shouldBeDefault,
     }
 
     user.addresses.push(newAddress as IUserAddress)
@@ -74,19 +77,21 @@ export const updateAddress = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).userId
-    const { addressId } = req.params
-    const updates = req.body as Partial<IUserAddress>
+    const addressId = req.params.addressId as string
 
+    if (!mongoose.Types.ObjectId.isValid(addressId)) {
+      throw new BadRequestError("Invalid address ID")
+    }
+
+    const updates = req.body as Partial<IUserAddress>
     const user = await User.findById(userId)
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found" })
-      return
+      throw new NotFoundError("User")
     }
 
     const index = user.addresses.findIndex((a: IUserAddress) => a._id?.toString() === addressId)
     if (index === -1) {
-      res.status(404).json({ success: false, message: "Address not found" })
-      return
+      throw new NotFoundError("Address")
     }
 
     user.addresses[index] = { ...user.addresses[index], ...updates } as IUserAddress
@@ -115,18 +120,20 @@ export const deleteAddress = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).userId
-    const { addressId } = req.params
+    const addressId = req.params.addressId as string
+
+    if (!mongoose.Types.ObjectId.isValid(addressId)) {
+      throw new BadRequestError("Invalid address ID")
+    }
 
     const user = await User.findById(userId)
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found" })
-      return
+      throw new NotFoundError("User")
     }
 
     const index = user.addresses.findIndex((a: IUserAddress) => a._id?.toString() === addressId)
     if (index === -1) {
-      res.status(404).json({ success: false, message: "Address not found" })
-      return
+      throw new NotFoundError("Address")
     }
 
    const wasDefault = user.addresses[index]?.isDefault ?? false

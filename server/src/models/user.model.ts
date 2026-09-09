@@ -27,6 +27,7 @@ resetPasswordExpires?: Date | undefined
   addresses: IUserAddress[]
   failedLoginAttempts: number
   lockUntil: Date | null
+  tokenVersion: number
 }
 
 const userAddressSchema = new Schema<IUserAddress>({
@@ -56,6 +57,7 @@ const userSchema = new Schema<IUser>(
     addresses: { type: [userAddressSchema], default: [] },
     failedLoginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
+    tokenVersion: { type: Number, default: 0 },
   },
   { timestamps: true }
 )

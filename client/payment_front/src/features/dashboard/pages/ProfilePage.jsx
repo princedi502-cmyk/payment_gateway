@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { User, Lock, MapPin, Plus, Trash2, Edit2, Phone, Mail } from 'lucide-react'
 import Button from '../../../shared/components/ui/Button.jsx'
@@ -27,27 +27,29 @@ function ProfilePage() {
     isDefault: false,
   })
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const addrResp = await getAddresses()
-        setAddresses(addrResp.data || [])
-      } catch {
-        // ignore
-      }
+  const loadAddresses = useCallback(async () => {
+    try {
+      const addrResp = await getAddresses()
+      setAddresses(addrResp.data || [])
+    } catch {
+      setAddresses([])
     }
-    load()
   }, [])
 
-useEffect(() => {
-  if (user) {
-    const id = setTimeout(() => {
-      setName(user.name || '')
-      setEmail(user.email || '')
-    }, 0)
-    return () => clearTimeout(id)
-  }
-}, [user])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadAddresses();
+  }, [loadAddresses])
+
+  useEffect(() => {
+    if (user) {
+      const id = setTimeout(() => {
+        setName(user.name || '')
+        setEmail(user.email || '')
+      }, 0)
+      return () => clearTimeout(id)
+    }
+  }, [user])
 
   const handleSaveProfile = async (e) => {
     e.preventDefault()
@@ -99,13 +101,15 @@ useEffect(() => {
   const handleAddressSubmit = async (e) => {
     e.preventDefault()
     try {
+      let response
       if (editingAddress) {
-        await updateAddress(editingAddress, addressForm)
+        response = await updateAddress(editingAddress, addressForm)
       } else {
-        await addAddress(addressForm)
+        response = await addAddress(addressForm)
       }
-      const resp = await getAddresses()
-      setAddresses(resp.data || [])
+      if (response?.data) {
+        setAddresses(response.data)
+      }
       closeAddressForm()
     } catch (err) {
       setMessage(err.message || 'Failed to save address.')
@@ -129,9 +133,10 @@ useEffect(() => {
 
   const handleDeleteAddress = async (addressId) => {
     try {
-      await deleteAddress(addressId)
-      const resp = await getAddresses()
-      setAddresses(resp.data || [])
+      const response = await deleteAddress(addressId)
+      if (response?.data) {
+        setAddresses(response.data)
+      }
       setDeletingAddress(null)
     } catch (err) {
       setMessage(err.message || 'Failed to delete address.')

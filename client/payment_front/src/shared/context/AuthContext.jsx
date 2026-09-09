@@ -25,14 +25,49 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    if (!user?._id) return
+    if (!user?._id || !user?.isVerified) return
 
-    window.OneSignalDeferred = window.OneSignalDeferred || []
+    let cancelled = false
+    const userId = user._id.toString()
 
-    window.OneSignalDeferred.push(async function (OneSignal) {
-      await OneSignal.login(user._id.toString())
-    })
-  }, [user])
+    const waitForOneSignal = (timeoutMs = 30000) => {
+      return new Promise((resolve) => {
+        let attempts = 0
+        const maxAttempts = timeoutMs / 500
+
+        const check = () => {
+          if (window.OneSignal && typeof window.OneSignal.init === 'function') {
+            resolve(window.OneSignal)
+          } else if (attempts >= maxAttempts) {
+            resolve(null)
+          } else {
+            attempts++
+            setTimeout(check, 500)
+          }
+        }
+        check()
+      })
+    }
+
+    const registerUserWithOneSignal = async () => {
+      const OneSignal = await waitForOneSignal()
+      if (!OneSignal || cancelled) return
+
+      window.OneSignalDeferred = window.OneSignalDeferred || []
+      window.OneSignalDeferred.push(async function (OS) {
+        if (cancelled) return
+        try {
+          await OS.login(userId)
+          console.log('[OneSignal] User registered:', userId)
+        } catch (err) {
+          console.error('[OneSignal] login failed:', err)
+        }
+      })
+    }
+
+    registerUserWithOneSignal()
+    return () => { cancelled = true }
+  }, [user?._id, user?.isVerified])
 
   const login = useCallback(async (credentials) => {
     const response = await loginUser(credentials)
@@ -52,7 +87,11 @@ export function AuthProvider({ children }) {
     window.OneSignalDeferred = window.OneSignalDeferred || []
 
     window.OneSignalDeferred.push(async function (OneSignal) {
-      await OneSignal.logout()
+      try {
+        await OneSignal.logout()
+      } catch (err) {
+        console.error('[OneSignal] logout failed:', err)
+      }
     })
 
     localStorage.removeItem('token')

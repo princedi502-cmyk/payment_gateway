@@ -1,7 +1,8 @@
 import { type Request, type Response, type NextFunction } from "express";
 import mongoose from "mongoose";
-import Product from "../models/product.model.ts";
-import redisService from "../services/redis.service.ts";
+import Product from "../models/product.model.js";
+import redis from "../config/redis.js";
+import { BadRequestError, NotFoundError } from "../errors/AppError.ts";
 
 const CACHE_TTL = 60;
 
@@ -16,8 +17,8 @@ export const getProducts = async (
     const skip = (page - 1) * limit;
     const cacheKey = `products:${page}:${limit}`;
 
-    if (redisService.isAvailable) {
-      const cachedRaw = await redisService.get(cacheKey);
+    try {
+      const cachedRaw = await redis.get(cacheKey);
       if (cachedRaw) {
         try {
           const cached = JSON.parse(cachedRaw) as any;
@@ -27,6 +28,8 @@ export const getProducts = async (
           // corrupted cache, fall through to fresh fetch
         }
       }
+    } catch {
+      // Redis unavailable, fall through to fresh fetch
     }
 
     const [products, total] = await Promise.all([
@@ -46,8 +49,10 @@ export const getProducts = async (
       },
     };
 
-    if (redisService.isAvailable) {
-      await redisService.set(cacheKey, JSON.stringify(response), CACHE_TTL);
+    try {
+      await redis.set(cacheKey, JSON.stringify(response), "EX", CACHE_TTL);
+    } catch {
+      // Redis unavailable, ignore cache write
     }
 
     res.status(200).json(response);
@@ -65,17 +70,13 @@ export const getProductById = async (
     const { id } = req.params;
 
     if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid product ID",
-      });
-      return;
+      throw new BadRequestError("Invalid product ID");
     }
 
     const cacheKey = `product:${id}`;
 
-    if (redisService.isAvailable) {
-      const cachedRaw = await redisService.get(cacheKey);
+    try {
+      const cachedRaw = await redis.get(cacheKey);
       if (cachedRaw) {
         try {
           const cached = JSON.parse(cachedRaw) as any;
@@ -85,16 +86,14 @@ export const getProductById = async (
           // corrupted cache, fall through to fresh fetch
         }
       }
+    } catch {
+      // Redis unavailable, fall through to fresh fetch
     }
 
     const product = await Product.findById(id);
 
     if (!product) {
-      res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-      return;
+      throw new NotFoundError("Product");
     }
 
     const response = {
@@ -103,8 +102,10 @@ export const getProductById = async (
       data: product,
     };
 
-    if (redisService.isAvailable) {
-      await redisService.set(cacheKey, JSON.stringify(response), CACHE_TTL);
+    try {
+      await redis.set(cacheKey, JSON.stringify(response), "EX", CACHE_TTL);
+    } catch {
+      // Redis unavailable, ignore cache write
     }
 
     res.status(200).json(response);

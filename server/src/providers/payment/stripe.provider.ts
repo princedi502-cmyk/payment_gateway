@@ -8,14 +8,19 @@ export class StripeProvider implements PaymentProvider {
     orderId: string;
     orderNumber: string;
   }) {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(params.amount * 100),
-      currency: params.currency.toLowerCase(),
-      metadata: {
-        orderId: params.orderId,
-        orderNumber: params.orderNumber,
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: Math.round(params.amount * 100),
+        currency: params.currency.toLowerCase(),
+        metadata: {
+          orderId: params.orderId,
+          orderNumber: params.orderNumber,
+        },
       },
-    });
+      {
+        idempotencyKey: `checkout-${params.orderId}`,
+      }
+    );
 
     return {
       paymentIntentId: paymentIntent.id,

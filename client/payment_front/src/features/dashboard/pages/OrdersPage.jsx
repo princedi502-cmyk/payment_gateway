@@ -1,63 +1,54 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Package } from 'lucide-react'
 import Button from '../../../shared/components/ui/Button.jsx'
 import Card from '../../../shared/components/ui/Card.jsx'
 import { getOrders } from '../../../shared/utils/authApi.js'
+import { useOrders } from '../context/OrdersContext.jsx'
 
 const LIMIT = 10
 
 function OrdersPage() {
-  const [orders, setOrders] = useState([])
-  const [pagination, setPagination] = useState({ page: 1, limit: LIMIT, total: 0 })
-  const [loading, setLoading] = useState(true)
+  const { orders, pagination: ctxPagination, loading: ctxLoading, appendPage } = useOrders()
+
   const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
   const [error, setError] = useState(false)
   const sentinelRef = useRef(null)
 
-  const load = async (page, append = false) => {
-    append ? setLoadingMore(true) : setLoading(true)
+  const total = ctxPagination?.total ?? 0
+  const hasMore = total > (orders?.length ?? 0)
+  const nextPage = Math.floor((orders?.length ?? 0) / LIMIT) + 1
+
+  const loadMore = useCallback(async () => {
+    if (nextPage <= 1 || ctxLoading) return
+    setLoadingMore(true)
     setError(false)
     try {
-      const response = await getOrders(page, LIMIT)
-      const data = response.data || []
-      const total = response.pagination?.total ?? 0
-      const newLength = append ? orders.length + data.length : data.length
-      setPagination(response.pagination || { page, limit: LIMIT, total: 0 })
-      setOrders(append ? [...orders, ...data] : data)
-      setHasMore(newLength < total)
+      const response = await getOrders(nextPage, LIMIT)
+      const data = response?.data || []
+      appendPage(data)
     } catch {
-      if (!append) setOrders([])
       setError(true)
     } finally {
-      setLoading(false)
       setLoadingMore(false)
     }
-  }
-
-  useEffect(() => {
-    const id = setTimeout(() => load(1), 0)
-    return () => clearTimeout(id)
-  }, [])
+  }, [nextPage, ctxLoading, appendPage])
 
   useEffect(() => {
     const sentinel = sentinelRef.current
-    if (!sentinel || loading || loadingMore || !hasMore || error) return
+    if (!sentinel || ctxLoading || loadingMore || !hasMore || error) return
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          load(pagination.page + 1, true)
+          loadMore()
         }
       },
       { rootMargin: '200px' }
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [loading, loadingMore, hasMore, error, pagination.page])
-
-
+  }, [ctxLoading, loadingMore, hasMore, error, loadMore])
 
   const statusColorMap = {
     paid: 'bg-green-100 text-green-700',
@@ -74,7 +65,7 @@ function OrdersPage() {
         <p className="text-slate-600 mt-1">View your order history and status.</p>
       </div>
 
-      {loading ? (
+      {ctxLoading ? (
         <Card>
           <p className="text-slate-600">Loading orders...</p>
         </Card>
@@ -128,7 +119,7 @@ function OrdersPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => (orders.length === 0 ? load(1) : load(pagination.page + 1, true))}
+            onClick={() => loadMore()}
           >
             Retry
           </Button>

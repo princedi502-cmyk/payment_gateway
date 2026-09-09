@@ -5,14 +5,23 @@ import { PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { Lock } from 'lucide-react'
 import { verifyPayment } from '../../../shared/utils/api.js'
 import { useCart } from '../../../shared/context/CartContext.jsx'
+import { useOrders } from '../../dashboard/context/OrdersContext.jsx'
+import { useInvalidateCache } from '../../../shared/hooks/useInvalidateCache.js'
 
 function CheckoutForm({ total, clientSecret, orderId }) {
   const stripe = useStripe()
   const elements = useElements()
   const navigate = useNavigate()
   const { clearCart } = useCart()
+  const orders = useOrders()
+  const { invalidateKeys } = useInvalidateCache()
   const [processing, setProcessing] = useState(false)
   const [stripeError, setStripeError] = useState('')
+
+  const handlePaymentSuccess = () => {
+    invalidateKeys(`order:${orderId}`)
+    orders.invalidate()
+  }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -42,7 +51,13 @@ function CheckoutForm({ total, clientSecret, orderId }) {
       }
 
       if (paymentIntent && paymentIntent.id) {
+        if (paymentIntent.status !== 'succeeded') {
+          setStripeError(paymentIntent.last_payment_error?.message || 'Payment was not completed. Please try again.')
+          setProcessing(false)
+          return
+        }
         await verifyPayment(paymentIntent.id)
+        handlePaymentSuccess()
         clearCart()
         navigate(`/payment-success?orderId=${orderId}`)
       }
@@ -77,7 +92,7 @@ function CheckoutForm({ total, clientSecret, orderId }) {
         size="lg"
         className="w-full"
         loading={processing}
-        disabled={!stripe}
+        disabled={!stripe || processing}
       >
         Pay ${total.toFixed(2)}
       </Button>
